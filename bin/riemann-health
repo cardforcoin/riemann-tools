@@ -11,16 +11,19 @@ class Riemann::Tools::Health
   opt :cpu_critical, "CPU critical threshold (fraction of total jiffies)", :default => 0.95
   opt :disk_warning, "Disk warning threshold (fraction of space used)", :default => 0.9
   opt :disk_critical, "Disk critical threshold (fraction of space used)", :default => 0.95
+  opt :disk_inodes_warning, "Disk inode warning threshold (fraction of inodes used)", :default => 0.9
+  opt :disk_inodes_critical, "Disk inode critical threshold (fraction of inodes used)", :default => 0.95
   opt :load_warning, "Load warning threshold (load average / core)", :default => 3
   opt :load_critical, "Load critical threshold (load average / core)", :default => 8
   opt :memory_warning, "Memory warning threshold (fraction of RAM)", :default => 0.85
   opt :memory_critical, "Memory critical threshold (fraction of RAM)", :default => 0.95
-  opt :checks, "A list of checks to run.", :type => :strings, :default => ['cpu', 'load', 'memory', 'disk']
+  opt :checks, "A list of checks to run.", :type => :strings, :default => ['cpu', 'load', 'memory', 'disk', 'disk_inodes']
 
   def initialize
     @limits = {
       :cpu => {:critical => opts[:cpu_critical], :warning => opts[:cpu_warning]},
       :disk => {:critical => opts[:disk_critical], :warning => opts[:disk_warning]},
+      :disk_inodes => {:critical => opts[:disk_inodes__critical], :warning => opts[:disk_inodes_warning]},
       :load => {:critical => opts[:load_critical], :warning => opts[:load_warning]},
       :memory => {:critical => opts[:memory_critical], :warning => opts[:memory_warning]}
     }
@@ -51,6 +54,8 @@ class Riemann::Tools::Health
       case check
       when "disk"
         @disk_enabled = true
+      when "disk_inodes"
+        @disk_inodes_enabled = true
       when "load"
         @load_enabled = true
       when "cpu"
@@ -253,6 +258,25 @@ class Riemann::Tools::Health
     end
   end
 
+  def disk_inodes
+    `df -i`.split(/\n/).each do |r|
+      f = r.split(/\s+/)
+      next if f[0] == 'Filesystem'
+      next unless f[0] =~ /\// # Needs at least one slash in the mount path
+
+      # Calculate capacity
+      x = f[4].to_f/100
+
+      if x > @limits[:disk_inodes][:critical]
+        alert "disk inodes #{f[5]}", :critical, x, "#{f[4]} used"
+      elsif x > @limits[:disk_inodes][:warning]
+        alert "disk inodes #{f[5]}", :warning, x, "#{f[4]} used"
+      else
+        alert "disk inodes #{f[5]}", :ok, x, "#{f[4]} used"
+      end
+    end
+  end
+
   def tick
     if @cpu_enabled
       @cpu.call
@@ -263,6 +287,10 @@ class Riemann::Tools::Health
     if @disk_enabled
       @disk.call
     end
+    if @disk_inodes_enabled
+      @disk_inodes.call
+    end
+    if @load_enabled
     if @load_enabled
       @load.call
     end
